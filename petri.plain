@@ -1,0 +1,44 @@
+graph 1 8.75 3.7638
+node P1 0.75 0.28886 0.57773 0.57773 P1 solid circle black lightgrey
+node P2 3.8472 0.28886 0.57773 0.57773 P2 solid circle black lightgrey
+node P3 4.8472 0.28886 0.57773 0.57773 P3 solid circle black lightgrey
+node P4 6.8472 0.28886 0.57773 0.57773 P4 solid circle black lightgrey
+node P5 8.375 0.28886 0.57773 0.57773 P5 solid circle black lightgrey
+node P6 2.8472 2.4208 0.57773 0.57773 P6 solid circle black lightgrey
+node P7 1.0972 2.4208 0.57773 0.57773 P7 solid circle black lightgrey
+node P8 6.0972 2.4208 0.57773 0.57773 P8 solid circle black lightgrey
+node P9 6.9306 2.4208 0.57773 0.57773 P9 solid circle black lightgrey
+node P10 1.9722 2.4208 0.68605 0.68605 P10 solid circle black lightgrey
+node T1 6.8472 3.5138 0.75 0.5 T1 solid box black lightgrey
+node T2 8.375 1.3277 0.75 0.5 T2 solid box black lightgrey
+node T3 2.8472 1.3277 0.75 0.5 T3 solid box black lightgrey
+node T4 1.1389 1.3277 0.75 0.5 T4 solid box black lightgrey
+node T5 3.8472 1.3277 0.75 0.5 T5 solid box black lightgrey
+node T6 4.8472 1.3277 0.75 0.5 T6 solid box black lightgrey
+node T7 6.8472 1.3277 0.75 0.5 T7 solid box black lightgrey
+node T8 0.375 3.5138 0.75 0.5 T8 solid box black lightgrey
+node T10 5.8472 1.3277 0.75 0.5 T10 solid ellipse black lightgrey
+node T9 1.375 3.5138 0.75 0.5 T9 solid ellipse black lightgrey
+edge P1 T4 4 0.85218 0.56181 0.89581 0.67836 0.9475 0.81647 0.9949 0.94309 solid black
+edge P2 T5 4 3.7631 0.56726 3.7534 0.68006 3.751 0.81236 3.756 0.93469 solid black
+edge P3 T6 4 4.7631 0.56726 4.7534 0.68006 4.751 0.81236 4.756 0.93469 solid black
+edge P3 T10 4 5.0496 0.49909 5.191 0.64597 5.3823 0.84471 5.5421 1.0107 solid black
+edge P4 T7 4 6.8472 0.57824 6.8472 0.688 6.8472 0.81493 6.8472 0.93277 solid black
+edge P4 T10 4 6.6449 0.49909 6.5035 0.64597 6.3122 0.84471 6.1524 1.0107 solid black
+edge P5 T2 4 8.2909 0.56726 8.2812 0.68006 8.2788 0.81236 8.2838 0.93469 solid black
+edge P6 T3 4 2.9302 2.1418 2.9413 2.0149 2.9438 1.8625 2.9378 1.7241 solid black
+edge P7 T8 4 0.93694 2.6633 0.84355 2.8047 0.72389 2.9858 0.61901 3.1445 solid black
+edge P7 T9 4 1.1688 2.7022 1.2017 2.8318 1.2413 2.9876 1.2769 3.1279 solid black
+edge P8 T1 4 6.2637 2.6633 6.3606 2.8047 6.4849 2.9858 6.5938 3.1445 solid black
+edge T1 P4 10 7.0693 3.2626 7.1757 3.1254 7.2919 2.9465 7.3472 2.7638 7.5644 2.0466 7.5561 1.7974 7.3472 1.0777 7.3009 0.91796 7.2114 0.75956 7.1207 0.62708 solid black
+edge T2 P5 4 8.4566 1.077 8.4676 0.96642 8.4711 0.83344 8.4672 0.70846 solid black
+edge T3 P6 4 2.7667 1.5812 2.7542 1.7057 2.7506 1.859 2.7557 2.0004 solid black
+edge T3 P10 4 2.6443 1.5812 2.5357 1.7169 2.3996 1.8868 2.2785 2.0382 solid black
+edge T4 P7 4 1.1292 1.5812 1.1246 1.7029 1.1189 1.8521 1.1136 1.9908 solid black
+edge T4 P10 4 1.3322 1.5812 1.4349 1.7159 1.5632 1.8843 1.678 2.0349 solid black
+edge T5 P2 4 3.9288 1.077 3.9398 0.96642 3.9434 0.83344 3.9394 0.70846 solid black
+edge T6 P3 4 4.9288 1.077 4.9398 0.96642 4.9434 0.83344 4.9394 0.70846 solid black
+edge T7 P8 4 6.6733 1.5812 6.5747 1.725 6.4497 1.9071 6.3414 2.0649 solid black
+edge T7 P9 4 6.8666 1.5812 6.8758 1.7029 6.8872 1.8521 6.8978 1.9908 solid black
+edge T8 P1 7 0.39969 3.261 0.44355 2.8181 0.53978 1.8735 0.63889 1.0777 0.65343 0.96096 0.67058 0.83468 0.687 0.7181 solid black
+stop

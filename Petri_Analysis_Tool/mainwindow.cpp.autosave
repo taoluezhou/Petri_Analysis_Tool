@@ -1,0 +1,1024 @@
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+using namespace std;
+
+//FILE *fp;
+PCIE m_hPCIE;
+PCIE_CONFIG m_szPcieInfo[256];
+DWORD   m_dwCardNum;
+
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    setWindowTitle("petri网分析工具");
+    ui->test_interface->setWindowTitle("测试界面");
+    ui->test_interface->setEnabled(false);
+    QPalette pal;
+    pal.setColor(QPalette::Background,Qt::white);
+    ui->load_widget->setAutoFillBackground(true);
+    ui->load_widget->setPalette(pal);
+    ui->match_widget->setAutoFillBackground(true);
+    ui->match_widget->setPalette(pal);
+    ui->step_test->setAutoFillBackground(true);
+    ui->step_test->setPalette(pal);
+    ui->c_step_test->setAutoFillBackground(true);
+    ui->c_step_test->setPalette(pal);
+    pf_file_open_flag=false;
+    //globals::item_type=0;
+    /***************设置cmd运行环境*****************/
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("PATH",env.value("Path")+";D:\\chengxu\\graphviz\\bin");
+    myProcess.setProcessEnvironment(env);
+
+    /***************初始化连接状态标签*****************/
+    QPalette pe;
+    pe.setColor(QPalette::WindowText,Qt::red);
+    ui->connect_state->setPalette(pe);
+    ui->connect_state->setText("未连接PCIE！");
+
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+void MainWindow::on_open_file_triggered()
+{
+    pf_file_path=QFileDialog::getOpenFileName(this,"选择.pf文件","../","TXT(*.pf)");
+    QByteArray array;
+    QString thisLine;
+    bool ok;
+    if(pf_file_path!=NULL)
+    {
+        QFile pffile(pf_file_path);
+        QFileInfo pffileInfo(pffile);
+        pf_file_name=pffileInfo.baseName();
+        if(!pffile.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            qDebug()<<"没有数据!";
+        }
+        else
+        {
+            array=pffile.readLine();    //判断petri网类型
+            thisLine=QString(array);
+            if(thisLine=="PETRI\n")     //普通petri网
+            {
+                array=pffile.readLine();    //读取行数
+                array[array.count()-1]='\0';
+                int row = array.toInt(&ok,10);
+                array=pffile.readLine();    //读取行列
+                array[array.count()-1]='\0';
+                int col = array.toInt(&ok,10);
+                array=pffile.readLine();//忽略一行
+                for(int i=0;i<row;i++)//读取row行petri_in
+                {
+                    array=pffile.readLine();
+                    array[array.count()-1]='\0';
+                    thisLine=QString(array);
+                    QStringList numList=thisLine.split(" ");
+                    for(int j=0;j<col;j++)
+                    {
+                        petri_in[i]<<numList[j].toInt(&ok,10);
+                    }
+                }
+                array=pffile.readLine();//忽略一行
+                for(int i=0;i<row;i++)//读取row行petri_out
+                {
+                    array=pffile.readLine();
+                    array[array.count()-1]='\0';
+                    thisLine=QString(array);
+                    QStringList numList=thisLine.split(" ");
+                    for(int j=0;j<col;j++)
+                    {
+                        petri_out[i]<<numList[j].toInt(&ok,10);
+                    }
+                }
+                /******************生成.gv文件*******************/
+                QString gvfilename=pf_file_name+".gv";
+                QDir *dir = new QDir;
+                dir->setPath("../"+pf_file_name);
+                if(!dir->exists())
+                {
+
+                    dir->mkdir(dir->path());
+                }
+                //QString path = dir->path();
+                //qDebug()<<path;
+                QFile file("../"+pf_file_name+"/"+gvfilename);
+                if(file.open(QIODevice::WriteOnly |QIODevice::Text |QIODevice::Append))
+                {
+                    file.resize(0);//清空数据
+                    QTextStream io(&file);
+                    io<<"digraph petri{\n";
+                    io<<"rankdir=BT\n";
+                    for(int i=0;i<col;i++)
+                    {
+                        io<<"P"<<i+1<<"[label=P"<<i+1<<",shape=circle]\n";
+                        struct Placeplot newplace;
+                        newplace.name="P"+QString::number(i+1,10);
+                        globals::placeList<<newplace;//向placeList中加入空元素
+                    }
+                    for(int i=0;i<row;i++)
+                    {
+                        io<<"T"<<i+1<<"[label=T"<<i+1<<",shape=box]\n";
+                        struct Transitionplot newTransition;
+                        newTransition.name="T"+QString::number(i+1,10);
+                        globals::transitionList<<newTransition;
+                    }
+                    for(int i=0;i<row;i++)
+                    {
+                        for(int j=0;j<col;j++)
+                        {
+                            if(petri_in[i][j]==1)
+                            {
+                                io<<"P"<<i+1<<"->T"<<j+1<<"\n";
+                            }
+                        }
+                    }
+                    for(int i=0;i<row;i++)
+                    {
+                        for(int j=0;j<col;j++)
+                        {
+                            if(petri_in[i][j]==1)
+                            {
+                                io<<"T"<<i+1<<"->P"<<j+1<<"\n";
+                            }
+                        }
+                    }
+                    io<<"}";
+                }
+                file.close();
+                /***********************************************/
+                /*****************生成.plain文件*****************/
+                QString currentpath=QDir::currentPath();
+                //qDebug()<<currentpath;
+                myProcess.start("cmd");
+                myProcess.waitForStarted();
+                myProcess.write("cd "+currentpath.toLatin1()+"/../"+pf_file_name.toLatin1()+"\n");
+                myProcess.write("dot -T plain "+gvfilename.toLatin1()+" -o petri.plain\n");
+                myProcess.close();
+                /***********************************************/
+                globals::item_type=1;
+                item_path=currentpath+"/../"+pf_file_name;//保存项目路径
+                pf_file_open_flag=true;
+            }
+            else if(thisLine=="COLOR_PETRI\n") //颜色petri网
+            {
+                int pos=0;
+                int places_number;
+                int places_color_number[MAX];
+                int transitions_number;
+                int transition_rules_number[MAX];
+                int transition_rules_number_max;
+                int p_to_t[MAX][MAX];
+                for(int i=0;i<MAX;i++)
+                    for(int j=0;j<MAX;j++)
+                    {
+                        p_to_t[i][j]=0;
+                    }
+                int t_to_p[MAX][MAX];
+                for(int i=0;i<MAX;i++)
+                    for(int j=0;j<MAX;j++)
+                    {
+                        t_to_p[i][j]=0;
+                    }
+                //qDebug()<<"COLOR_PETRI";
+                array=pffile.readLine(); //第2行忽略
+                array=pffile.readLine(); //第3行取出place和transition数量
+                thisLine=QString(array);
+                QRegExp rx("(\\d+)");
+                pos=0;
+                pos = rx.indexIn(thisLine, pos);
+                places_number=rx.cap(0).toInt();
+                pos += rx.matchedLength();
+                pos = rx.indexIn(thisLine, pos);
+                transitions_number=rx.cap(0).toInt();
+                array=pffile.readLine();//第4行忽略
+                array=pffile.readLine();//第5行忽略
+                array=pffile.readLine();//第6行取出每个变迁的颜色数
+                thisLine=QString(array);
+                pos=0;
+                transition_rules_number_max=0;
+                for(int i=0;i<transitions_number;i++)
+                {
+                    pos = rx.indexIn(thisLine, pos);
+                    transition_rules_number[i]=rx.cap(0).toInt();
+                    if(transition_rules_number[i]>transition_rules_number_max)
+                    {
+                        transition_rules_number_max=transition_rules_number[i]; //最大库所颜色值
+                    }
+                    pos += rx.matchedLength();
+                }
+                array=pffile.readLine();//第7行忽略
+                array=pffile.readLine();//第8行忽略
+                array=pffile.readLine();//第9行取出每个库所颜色数
+                thisLine=QString(array);
+                pos=0;
+                for(int i=0;i<places_number;i++)
+                {
+                    pos = rx.indexIn(thisLine, pos);
+                    places_color_number[i]=rx.cap(0).toInt();
+                    pos += rx.matchedLength();
+                }
+                array=pffile.readLine();//第10行忽略
+                array=pffile.readLine();//第11行忽略
+                for(int i=0;i<places_number;i++)//往下读取places_number*（transition_rules_number_max+1）行
+                {
+                    array=pffile.readLine();//忽略一行
+                    for(int j=0;j<transition_rules_number_max;j++)
+                    {
+                        array=pffile.readLine();
+                        thisLine=QString(array);
+                        for(int k=0;k<transitions_number;k++)
+                        {
+                            bool flag=false;
+                            struct c_arc newarc;
+                            newarc.placeID=i;
+                            newarc.transitionID=k;
+                            QString str=thisLine.section(' ',k+1,k+1).trimmed();//取出矩阵中每个元素
+                            if(str[0]!='0')
+                            {
+                                p_to_t[i][k]++;
+                                int l=0;
+                                for(l=0;l<globals::arc_pt.count();l++)
+                                {
+                                    if(globals::arc_pt[l].placeID==newarc.placeID&&globals::arc_pt[l].transitionID==newarc.transitionID)
+                                    {
+                                        flag=true;
+                                        break;
+                                    }
+                                }
+                                if(flag==false)
+                                {
+                                    newarc.color<<str;
+                                    globals::arc_pt<<newarc;
+                                }
+                                else if(flag==true)
+                                {
+                                    globals::arc_pt[l].color<<str;
+                                }
+                            }
+                        }
+                    }
+                }
+                array=pffile.readLine();
+                array=pffile.readLine();//忽略两行
+                for(int i=0;i<places_number;i++)//往下读取places_number*（transition_rules_number_max+1）行
+                {
+                    array=pffile.readLine();//忽略一行
+                    for(int j=0;j<transition_rules_number_max;j++)
+                    {
+                        array=pffile.readLine();
+                        thisLine=QString(array);
+                        for(int k=0;k<transitions_number;k++)
+                        {
+                            bool flag=false;
+                            struct c_arc newarc;
+                            newarc.placeID=i;
+                            newarc.transitionID=k;
+                            QString str=thisLine.section(' ',k+1,k+1).trimmed();//取出矩阵中每个元素
+                            if(str[0]!='0')
+                            {
+                                t_to_p[i][k]++;
+                                int l=0;
+                                for(l=0;l<globals::arc_tp.count();l++)
+                                {
+                                    if(globals::arc_tp[l].placeID==newarc.placeID&&globals::arc_tp[l].transitionID==newarc.transitionID)
+                                    {
+                                        flag=true;
+                                        break;
+                                    }
+                                }
+                                if(flag==false)
+                                {
+                                    newarc.color<<str;
+                                    globals::arc_tp<<newarc;
+                                }
+                                else if(flag==true)
+                                {
+                                    globals::arc_tp[l].color<<str;
+                                }
+                            }
+                        }
+                    }
+                }
+                array=pffile.readLine();//忽略一行
+                array=pffile.readLine();//忽略一行
+                for(int i=0;i<places_number;i++)//读取每个库所中的颜色
+                {
+                    array=pffile.readLine();//忽略一行
+                    struct c_Placeplot newplace;
+                    newplace.name="P"+QString::number(i+1,10);
+                    for(int j=0;j<places_color_number[i];j++)
+                    {
+                        array=pffile.readLine();
+                        thisLine=QString(array);
+                        QStringList strL=thisLine.split(" ");
+                        newplace.color<<strL[0];
+                        struct color_value newcolor;
+                        newcolor.name=strL[0];
+                        newplace.value<<newcolor;
+                    }
+                    globals::c_placeList<<newplace;
+                    //qDebug()<<globals::c_placeList[i].color;
+                }
+
+                /******************生成.gv文件*******************/
+                QString gvfilename=pf_file_name+".gv";
+                QDir *dir = new QDir;
+                dir->setPath("../"+pf_file_name);
+                if(!dir->exists())
+                {
+                    dir->mkdir(dir->path());
+                }
+                QFile file("../"+pf_file_name+"/"+gvfilename);
+                if(file.open(QIODevice::WriteOnly |QIODevice::Text |QIODevice::Append))
+                {
+                    file.resize(0);//清空数据
+                    QTextStream io(&file);
+                    io<<"digraph petri{\n";
+                    io<<"rankdir=BT\n";
+                    for(int i=0;i<places_number;i++)
+                    {
+                        io<<"P"<<i+1<<"[label=P"<<i+1<<",shape=circle]\n";
+                    }
+                    for(int i=0;i<transitions_number;i++)
+                    {
+                        io<<"T"<<i+1<<"[label=T"<<i+1<<",shape=box]\n";
+                    }
+                    for(int i=0;i<places_number;i++)
+                    {
+                        for(int k=0;k<transitions_number;k++)
+                        {
+                            if(p_to_t[i][k]!=0)
+                            {
+                                io<<"P"<<i+1<<"->T"<<k+1<<"\n";
+                            }
+                        }
+                    }
+                    for(int i=0;i<places_number;i++)
+                    {
+                        for(int k=0;k<transitions_number;k++)
+                        {
+                            if(t_to_p[i][k]!=0)
+                            {
+                                io<<"T"<<k+1<<"->P"<<i+1<<"\n";
+                            }
+                        }
+                    }
+                    io<<"}";
+                }
+                file.close();
+                /***********************************************/
+                /*****************生成.plain文件*****************/
+                QString currentpath=QDir::currentPath();
+                myProcess.start("cmd");
+                myProcess.waitForStarted();
+                myProcess.write("cd "+currentpath.toLatin1()+"/../"+pf_file_name.toLatin1()+"\n");
+                myProcess.write("dot -T plain "+gvfilename.toLatin1()+" -o petri.plain\n");
+                myProcess.close();
+                /***********************************************/
+                globals::item_type=2;
+                item_path=currentpath+"/../"+pf_file_name;//保存项目路径
+                pf_file_open_flag=true;
+            }
+            else
+            {
+                qDebug()<<"请选择正确的文件";
+            }
+        }
+        pffile.close();
+    }
+    if(globals::item_type==1||globals::item_type==2)
+    {
+        ui->test_interface->setEnabled(true);
+    }
+    /**************初始化单步显示窗口*****************/
+    if(globals::item_type==1)
+    {
+        int axis_y=10;
+        int placenum=globals::placeList.count();
+        for(int i=0;i<placenum;i++)
+        {
+            QLabel *newlabel=new QLabel(globals::placeList[i].name,ui->step_result);
+            newlabel->setGeometry(20,axis_y,20,30);
+            stepLabelList<<newlabel;
+            stepLabelList[i]->show();
+            QLineEdit *newLineEdit=new  QLineEdit("0",ui->step_result);
+            stepTextLineList<<newLineEdit;
+            stepTextLineList[i]->setGeometry(50,axis_y,100,30);
+            stepTextLineList[i]->setClearButtonEnabled(true);
+            stepTextLineList[i]->setValidator(new QRegExpValidator(QRegExp("[0-9]+$")));
+            stepTextLineList[i]->show();
+            axis_y+=50;
+        }
+        ui->step_result->setMinimumSize(150,axis_y);
+    }
+    else if(globals::item_type==2)
+    {
+        int axis_y=10;
+        int axis_x_max=0;
+        int placenum=globals::c_placeList.count();
+        for(int i=0;i<placenum;i++)
+        {
+            int axis_x=20;
+            QLabel *newlabel=new QLabel(globals::c_placeList[i].name,ui->step_result);
+            newlabel->setGeometry(axis_x,axis_y,20,30);
+            stepLabelList<<newlabel;
+            stepLabelList[i]->show();
+            axis_y+=30;
+            struct stepColorLabel newColorLabel;
+            newColorLabel.colornum=globals::c_placeList[i].color.count();
+            for(int j=0;j<newColorLabel.colornum;j++)
+            {
+                QLabel *newcolorlabel=new QLabel(globals::c_placeList[i].color[j],ui->step_result);
+                newcolorlabel->setGeometry(axis_x,axis_y,50,30);
+                newColorLabel.Colorname<<newcolorlabel;
+                newColorLabel.Colorname[j]->show();
+                axis_x+=50;
+                QLineEdit *newcolorLineEdit=new  QLineEdit("0",ui->step_result);
+                newColorLabel.ColorTextLine<<newcolorLineEdit;
+                newColorLabel.ColorTextLine[j]->setGeometry(axis_x,axis_y,100,30);
+                newColorLabel.ColorTextLine[j]->setClearButtonEnabled(true);
+                newColorLabel.ColorTextLine[j]->setValidator(new QRegExpValidator(QRegExp("[0-9]+$")));
+                newColorLabel.ColorTextLine[j]->show();
+                axis_x+=105;
+            }
+            if(axis_x>axis_x_max)
+            {
+               axis_x_max=axis_x;
+            }
+            stepColorLabelList<<newColorLabel;
+            axis_y+=50;
+        }
+        ui->step_result->setMinimumSize(axis_x_max,axis_y);
+    }
+}
+
+void MainWindow::on_test_interface_hide_triggered()
+{
+    if(!ui->test_interface->isHidden())
+    {
+        ui->test_interface->setHidden(1);
+    }
+    else
+        ui->test_interface->setHidden(0);
+}
+
+void MainWindow::on_test_interface_visibilityChanged(bool visible)
+{
+    if(visible)
+    {
+        ui->test_interface_hide->setChecked(true);
+    }
+    else
+    {
+        ui->test_interface_hide->setChecked(false);
+    }
+}
+
+void MainWindow::on_load_place_clicked()
+{
+    load_place_01.show();
+}
+
+void MainWindow::on_match_place_clicked()
+{
+    match_place_01.show();
+}
+
+bool MainWindow::rebuildboard()
+{
+    const WORD wVendorID = 0;
+    const WORD wDeviceID = 0;
+    bool bSuccess;
+    DWORD dwDeviceNum;
+    m_dwCardNum = 0;
+    bSuccess = m_hPCIE.ScanCard(wVendorID, wDeviceID, &dwDeviceNum, m_szPcieInfo);
+    if (!bSuccess)
+    {
+       qDebug()<<"Failed to scan pcie card!";
+    }
+    else if (dwDeviceNum == 0)
+    {
+       qDebug()<<"Cannot find any desired pcie card!";
+    }
+    else
+    {
+        m_dwCardNum = dwDeviceNum;
+        //int nDefaultIndex = 0;
+        for (int i = 0; i < (int)dwDeviceNum; i++)
+        {
+            PCIE_CONFIG *p = (PCIE_CONFIG *)&m_szPcieInfo[i];
+            if (p->VendorID == 0x1172 && p->DeviceID == 0xE001)
+            {
+            }
+        }
+    }
+    return bSuccess;
+}
+
+bool MainWindow::connectboard()
+{
+    bool bSuccess;
+    if (m_hPCIE.IsOpened())
+        m_hPCIE.Close();
+    bSuccess = m_hPCIE.Open(PCIE_VID, PCIE_DID, 0);
+    if (bSuccess)
+    {
+        QPalette pe;
+        pe.setColor(QPalette::WindowText,Qt::green);
+        ui->connect_state->setPalette(pe);
+        ui->connect_state->setText("连接PCIE成功！");
+    }
+    else
+    {
+        QPalette pe;
+        pe.setColor(QPalette::WindowText,Qt::red);
+        ui->connect_state->setPalette(pe);
+        ui->connect_state->setText("未连接PCIE！");
+    }
+    /*译码复位标志位*/
+    if (m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR + 40, 2) == 0)
+    {
+        return 0;
+    }
+    //ClearLine();
+    return bSuccess;
+}
+
+void MainWindow::on_connect_clicked()
+{
+    if (!m_hPCIE.IsDriverAvailable())
+    {
+        qDebug()<<"Load Driver fail!";
+        //MessageBox(_T("Load Driver fail!"));
+    }
+    else
+    {
+        rebuildboard();
+        connectboard();
+    }
+    //return bSuccess;
+}
+
+void MainWindow::on_Load_data_clicked()
+{
+         if(globals::item_type==1)
+    {
+        if(!(m_hPCIE.IsOpened()))
+        {
+            qDebug("Connect to the PCIE Port first");
+            return;
+        }
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 8);
+    }
+    else if(globals::item_type==2)
+    {
+        load_reg_96.clear();
+        load_reg_96="00000";
+        if(!(m_hPCIE.IsOpened()))
+        {
+            qDebug("Connect to the PCIE Port first");
+            return;
+        }
+        for(int i=0;i<globals::load_c_place.count();i++)
+        {
+            for(int j=0;j<globals::load_c_place[i].color_values.count();j++)
+            {
+                QString color_value=QString::number(globals::load_c_place[i].color_values[j].value,2);
+                int count=5-color_value.count();
+                for(int k=0;k<count;k++)
+                {
+                    color_value="0"+color_value;
+                }
+                load_reg_96=load_reg_96+color_value;
+            }
+        }
+        while(load_reg_96.count()<96)
+        {
+            load_reg_96=load_reg_96+"0";
+        }
+        qDebug()<<load_reg_96;
+        QString load_reg_h32=load_reg_96.mid(0,32);
+        qDebug()<<load_reg_h32;
+        qDebug()<<binToDec(load_reg_h32);
+        QString load_reg_m32=load_reg_96.mid(32,32);
+        qDebug()<<load_reg_m32;
+        qDebug()<<binToDec(load_reg_m32);
+        QString load_reg_l32=load_reg_96.mid(64,32);
+        qDebug()<<load_reg_l32;
+        qDebug()<<binToDec(load_reg_l32);
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+12, binToDec(load_reg_h32));
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+16, binToDec(load_reg_m32));
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+20, binToDec(load_reg_l32));
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 8);
+    }
+}
+
+void MainWindow::on_match_begin_clicked()
+{
+    if(globals::item_type==1)
+    {
+        if(!(m_hPCIE.IsOpened()))
+        {
+            qDebug("Connect to the PCIE Port first");
+            return;
+        }
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 8);
+    }
+    else if(globals::item_type==2)
+    {
+        if(!(m_hPCIE.IsOpened()))
+        {
+            qDebug("Connect to the PCIE Port first");
+            return;
+        }
+        match_reg_96.clear();
+        match_reg_96="00000";
+        for(int i=0;i<globals::match_c_place.count();i++)
+        {
+            for(int j=0;j<globals::match_c_place[i].color_values.count();j++)
+            {
+                QString color_value=QString::number(globals::match_c_place[i].color_values[j].value,2);
+                int count=5-color_value.count();
+                for(int k=0;k<count;k++)
+                {
+                    color_value="0"+color_value;
+                }
+                match_reg_96=match_reg_96+color_value;
+            }
+        }
+        while(match_reg_96.count()<96)
+        {
+            match_reg_96=match_reg_96+"0";
+        }
+        QString match_reg_h32=match_reg_96.mid(0,32);
+        QString match_reg_m32=match_reg_96.mid(32,32);
+        QString match_reg_l32=match_reg_96.mid(64,32);
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+24, binToDec(match_reg_h32));
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+28, binToDec(match_reg_m32));
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+32, binToDec(match_reg_l32));
+        m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 256);
+    }
+}
+
+unsigned MainWindow::binToDec(QString strBin)//二进制转十进制
+{
+    unsigned nDec = 0;
+    int nLen;
+    int i,j,k;
+    nLen = strBin.length();
+    for(i=0;i<nLen;i++)
+    {
+        if(strBin[nLen-i-1]=='0')
+            continue;
+        else{
+            k=1;
+            for(j=0;j<i;j++)
+                k=k*2;
+            nDec+=k;
+        }
+    }
+    return nDec;
+}
+
+
+void MainWindow::on_clear_01_clicked()    //6个相同功能的重置键
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+}
+
+void MainWindow::on_clear_02_clicked()
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+}
+
+void MainWindow::on_clear_03_clicked()
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+}
+
+void MainWindow::on_clear_04_clicked()
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+}
+
+void MainWindow::on_clear_05_clicked()
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+}
+
+void MainWindow::on_clear_06_clicked()
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+}
+
+void MainWindow::on_count_clicked() //match计数
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    unsigned long pread;
+    m_hPCIE.Read32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR + 24, &pread);
+    ui->count_num->setText(QString::number(pread));
+}
+
+void MainWindow::on_suspend_clicked() //中断
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 2);
+}
+
+void MainWindow::on_Continue_clicked() //中断恢复
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 4);
+}
+
+void MainWindow::on_begin_single_clicked() //单步
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 128);
+}
+
+void MainWindow::on_begin_deter_clicked() //定步
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 64);
+}
+
+void MainWindow::on_begin_c_single_clicked() //循环单步
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 32);
+}
+
+void MainWindow::on_begin_c_deter_clicked() //循环定步
+{
+    if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 16);
+}
+
+void MainWindow::on_memory_reset_clicked()
+{
+     if(!(m_hPCIE.IsOpened()))
+    {
+        qDebug("Connect to the PCIE Port first");
+        return;
+    }
+    m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, 0);
+    unsigned long pread;
+    m_hPCIE.Read32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+8, &pread);
+    if(pread==0)
+    {
+         m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+36, 1);
+         m_hPCIE.Write32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+36, 0);
+    }
+}
+
+
+void MainWindow::on_read_result_clicked()
+{
+    if (!(m_hPCIE.IsOpened()))
+    {
+        qDebug()<<"Connect to the PCIE Port first";
+        return;
+    }
+    QString str;
+    unsigned long pread;
+    m_hPCIE.Read32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR + 12, &pread);
+    str+=QString::number(pread);
+    //qDebug()<<QString::number(pread);
+    m_hPCIE.Read32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR + 16, &pread);
+    str+=QString::number(pread);
+    //qDebug()<<QString::number(pread);
+    m_hPCIE.Read32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR + 20, &pread);
+    str+=QString::number(pread);
+    //qDebug()<<QString::number(pread);
+    //str="00000000000000000000000000000000111110000000000000000000000000010000100011011010000100001000001110011100111000000000000000000111";
+    int k=0;
+    for(int i=0;i<stepColorLabelList.count();i++)
+    {
+        for(int j=0;j<stepColorLabelList[i].ColorTextLine.count();j++)
+        {
+            QString thisdata=str.mid(BEGIN+5*k,5);
+            k++;
+            bool ok;
+            int num=thisdata.toInt(&ok,2);
+            //qDebug()<<num;
+            stepColorLabelList[i].ColorTextLine[j]->setText(QString::number(num));
+            stepColorLabelList[i].ColorTextLine[j]->show();
+        }
+    }
+}
+
+void MainWindow::on_read_c_result_clicked()
+{
+    bool bSuccess;
+    if (!(m_hPCIE.IsOpened()))
+    {
+        qDebug()<<"Connect to the PCIE Port first";
+        return;
+    }
+    const int nTestSize = 256*100;
+    const PCIE_LOCAL_ADDRESS LocalAddr = 0;
+    BYTE *pRead = new BYTE[nTestSize];
+
+    QFile file(item_path);
+    int count = 100;
+    int p=1;
+    int read_count = count/16;
+    int addr_count = count%16;
+
+    bSuccess = m_hPCIE.DmaRead(LocalAddr+p*16, pRead,256*100);
+    for(int l=0;l<=read_count;++l)
+    {
+        if(bSuccess)
+        {
+            QSqlDatabase db =QSqlDatabase::addDatabase("QSQLITE");
+            db.setDatabaseName(item_path+"/"+"placedata.db");
+            if(!db.open())
+            {
+                qDebug()<<db.lastError();
+            }
+            QSqlQuery que;
+            que.exec("create table Place (ID int primary key, name varchar(30), color_num int);");
+            for(int i=0;i<globals::c_placeList.count();i++)
+            {
+                que.prepare("insert into Place (ID , name , color_num ) values (?,?,?);");
+                que.addBindValue(i+1);
+                que.addBindValue(globals::c_placeList[i].name);
+                que.addBindValue(globals::c_placeList[i].color.count());
+                que.exec();
+            }
+            que.exec("create table Color (ID int primary key, Place_ID int ,Place_name varchar(30), Color_name varchar(30));");
+            int color_ID=1;
+            for(int i=0;i<globals::c_placeList.count();i++)
+            {
+                for(int j=0;j<globals::c_placeList[i].color.count();j++)
+                {
+                    que.prepare("insert into Color (ID ,Place_ID ,Place_name , Color_name ) values (?,?,?,?);");
+                    que.addBindValue(color_ID);
+                    color_ID++;
+                    que.addBindValue(i+1);
+                    que.addBindValue(globals::c_placeList[i].name);
+                    que.addBindValue(globals::c_placeList[i].color[j]);
+                    que.exec();
+                    que.prepare("create table "+globals::c_placeList[i].color[j]+" (ID int primary key, num int);");
+                    que.exec();
+                }
+            }
+
+            if(file.open(QFile::WriteOnly | QIODevice::Append |  QIODevice::Text))
+            {
+                qDebug()<<"read suc!";
+
+                QTextStream out(&file);
+                if(l==read_count)
+                {
+                    QString str_long;
+                    for(int k=0;k<addr_count;++k)
+                    {
+                        out <<"=========================="<<'\n';
+                        out <<" "<<p+l*16+k<<"   ";
+                        for(int j=15;j>=0;--j)
+                        {
+                            QString str = QString("%1").arg(*(pRead+j+k*16+l*256),8,2,QLatin1Char('0'));
+                            str_long+=str;
+                            out <<str;
+                        }
+
+                        out <<'\n';
+
+                    }
+                }
+                else
+                {
+                    QString str_long;
+                    for(int k=0;k<16;++k)
+                    {
+                        out <<"=========================="<<'\n';
+                        out <<" "<<p+l*16+k<<"   ";
+                        for(int j=15;j>=0;--j)
+                        {
+                            QString str = QString("%1").arg(*(pRead+j+k*16+l*256),8,2,QLatin1Char('0'));
+                            str_long+=str;
+                            out <<str;
+                        }
+                        out <<'\n';
+
+                        int color_count=0;
+                        for(int i=0;i<globals::c_placeList.count();i++)
+                        {
+                            for(int j=0;j<globals::c_placeList[i].color.count();j++)
+                            {
+                                globals::c_placeList[i].value[j].name=globals::c_placeList[i].color[j];
+                                QString thisdata=str_long.mid(BEGIN+5*color_count,5);
+                                color_count++;
+                                bool ok;
+                                int num=thisdata.toInt(&ok,2);
+                                globals::c_placeList[i].value[j].value<<num;
+                                que.prepare("insert into "+globals::c_placeList[i].value[j].name+" (ID int primary key, num int) values (?,?);");
+                                que.addBindValue(l);
+                                que.addBindValue(num);
+                                que.exec();
+                            }
+                        }
+                    }
+                }
+                file.close();
+            }
+            else
+            {
+                qDebug()<<"read failed!";
+            }
+            db.close();
+        }
+    }
+    delete []pRead;
+}
+
+void MainWindow::on_check_state_clicked()
+{
+    if (!(m_hPCIE.IsOpened()))
+    {
+        qDebug()<<"Connect to the PCIE Port first";
+        return;
+    }
+    unsigned long pread;
+    m_hPCIE.Read32(DEMO_PCIE_USER_BAR, DEMO_PCIE_IO_ADDR+40, &pread);
+    if(pread==1)
+    {
+        QPalette pe;
+        pe.setColor(QPalette::WindowText,Qt::green);
+        ui->match_state->setPalette(pe);
+        ui->match_state->setText("匹配状态：成功！");
+    }
+    else if(pread==0)
+    {
+        QPalette pe;
+        pe.setColor(QPalette::WindowText,Qt::red);
+        ui->match_state->setPalette(pe);
+        ui->match_state->setText("匹配状态：匹配中...");
+    }
+}

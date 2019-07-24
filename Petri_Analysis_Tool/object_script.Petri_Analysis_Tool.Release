@@ -1,0 +1,13 @@
+INPUT(
+./release\main.o
+./release\mainwindow.o
+./release\globals.o
+./release\load_place.o
+./release\match_place.o
+./release\PCIE.o
+./release\ramthread.o
+./release\moc_mainwindow.o
+./release\moc_load_place.o
+./release\moc_match_place.o
+./release\moc_ramthread.o
+);
